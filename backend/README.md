@@ -270,13 +270,20 @@ Response:
 
 ## Testing
 
-Write at least one test for the success and at least one error behavior of each endpoint using the unittest library.
+The test suite (`test_flaskr.py`) covers both success and failure behavior for
+every endpoint using the `unittest` library. Each test run drops, recreates,
+and re-seeds the test database tables automatically in `setUp`, so the tests
+are fully self-contained.
 
-To deploy the tests, run
+The test database name is read from the `DB_TEST_NAME` environment variable
+(defaults to `trivia_test`). Create it once:
 
 ```bash
-dropdb trivia_test
 createdb trivia_test
-psql trivia_test < trivia.psql
+```
+
+Then run the tests from the `backend` directory:
+
+```bash
 python test_flaskr.py
 ```

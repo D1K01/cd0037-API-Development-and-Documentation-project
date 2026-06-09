@@ -1,10 +1,11 @@
 from sqlalchemy import Column, String, Integer
 from flask_sqlalchemy import SQLAlchemy
-database_name = 'trivia'
-database_user = 'postgres'
-database_password = 'password'
-database_host = 'localhost:5432'
-database_path = f'postgresql://{database_user}:{database_password}@{database_host}/{database_name}'
+
+from settings import DB_NAME, DB_USER, DB_PASSWORD, DB_HOST
+
+database_name = DB_NAME
+database_path = 'postgresql://{}:{}@{}/{}'.format(
+    DB_USER, DB_PASSWORD, DB_HOST, database_name)
 
 db = SQLAlchemy()
 
@@ -12,6 +13,7 @@ db = SQLAlchemy()
 setup_db(app)
     binds a flask application and a SQLAlchemy service
 """
+
 def setup_db(app, database_path=database_path):
     app.config['SQLALCHEMY_DATABASE_URI'] = database_path
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
@@ -20,6 +22,8 @@ def setup_db(app, database_path=database_path):
 """
 Question
 """
+
+
 class Question(db.Model):
     __tablename__ = 'questions'
 
@@ -55,9 +59,12 @@ class Question(db.Model):
             'difficulty': self.difficulty
         }
 
+
 """
 Category
 """
+
+
 class Category(db.Model):
     __tablename__ = 'categories'
 

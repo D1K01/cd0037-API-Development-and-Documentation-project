@@ -1,39 +1,38 @@
-import os
 import unittest
 
 from sqlalchemy import text
 
 from flaskr import create_app
 from models import db, Question, Category
+from settings import DB_USER, DB_PASSWORD, DB_HOST, DB_TEST_NAME
 
 
 class TriviaTestCase(unittest.TestCase):
-    """This class represents the trivia test case"""
+    """This class represents the trivia test case."""
 
     def setUp(self):
         """Define test variables and initialize app."""
-        self.database_name = "trivia_test"
-        self.database_user = "postgres"
-        self.database_password = "password"
-        self.database_host = "localhost:5432"
-        self.database_path = f"postgresql://{self.database_user}:{self.database_password}@{self.database_host}/{self.database_name}"
+        self.database_path = (
+            f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}/{DB_TEST_NAME}"
+        )
 
-        # Create app with the test configuration
         self.app = create_app({
             "SQLALCHEMY_DATABASE_URI": self.database_path,
             "SQLALCHEMY_TRACK_MODIFICATIONS": False,
             "TESTING": True
         })
         self.client = self.app.test_client()
-
-        # Bind the app to the current context and create all tables
         with self.app.app_context():
             db.session.execute(text("DROP TABLE IF EXISTS questions CASCADE"))
             db.session.execute(text("DROP TABLE IF EXISTS categories CASCADE"))
             db.session.commit()
             db.create_all()
 
-            for category_type in ["Science", "Art", "Geography", "History", "Entertainment", "Sports"]:
+            categories = [
+                "Science", "Art", "Geography",
+                "History", "Entertainment", "Sports",
+            ]
+            for category_type in categories:
                 db.session.add(Category(type=category_type))
             db.session.commit()
 
@@ -47,34 +46,60 @@ class TriviaTestCase(unittest.TestCase):
             db.session.commit()
 
     def tearDown(self):
-        """Executed after each test"""
+        """Executed after each test."""
         with self.app.app_context():
             db.session.remove()
             db.drop_all()
-
-    """
-    TODO
-    Write at least one test for each test for successful operation and for expected errors.
-    """
-    
-    def test_get_categories(self):
+            
+    def test_get_categories_success(self):
         res = self.client.get("/categories")
         data = res.get_json()
 
         self.assertEqual(res.status_code, 200)
         self.assertTrue(data["success"])
-        self.assertTrue(len(data["categories"]) > 0)
+        self.assertEqual(len(data["categories"]), 6)
 
-    def test_get_paginated_questions(self):
+    def test_get_categories_failure_404_when_empty(self):
+        # Removing all categories should make the endpoint return 404.
+        with self.app.app_context():
+            db.session.execute(text("DELETE FROM questions"))
+            db.session.execute(text("DELETE FROM categories"))
+            db.session.commit()
+
+        res = self.client.get("/categories")
+        data = res.get_json()
+
+        self.assertEqual(res.status_code, 404)
+        self.assertFalse(data["success"])
+        self.assertEqual(data["message"], "resource not found")
+
+    def test_get_categories_failure_405_wrong_method(self):
+        res = self.client.post("/categories")
+        data = res.get_json()
+
+        self.assertEqual(res.status_code, 405)
+        self.assertFalse(data["success"])
+        self.assertEqual(data["message"], "method not allowed")
+
+    def test_get_paginated_questions_success(self):
         res = self.client.get("/questions")
         data = res.get_json()
 
         self.assertEqual(res.status_code, 200)
         self.assertTrue(data["success"])
-        self.assertTrue(data["total_questions"] > 0)
+        self.assertEqual(data["total_questions"], 12)
         self.assertEqual(len(data["questions"]), 10)
+        self.assertTrue(len(data["categories"]) > 0)
 
-    def test_404_get_questions_beyond_valid_page(self):
+    def test_get_questions_second_page_success(self):
+        res = self.client.get("/questions?page=2")
+        data = res.get_json()
+
+        self.assertEqual(res.status_code, 200)
+        self.assertTrue(data["success"])
+        self.assertEqual(len(data["questions"]), 2)
+
+    def test_get_questions_failure_404_beyond_valid_page(self):
         res = self.client.get("/questions?page=1000")
         data = res.get_json()
 
@@ -82,7 +107,7 @@ class TriviaTestCase(unittest.TestCase):
         self.assertFalse(data["success"])
         self.assertEqual(data["message"], "resource not found")
 
-    def test_create_question(self):
+    def test_create_question_success(self):
         res = self.client.post("/questions", json={
             "question": "Who wrote Hamlet?",
             "answer": "Shakespeare",
@@ -95,9 +120,40 @@ class TriviaTestCase(unittest.TestCase):
         self.assertTrue(data["success"])
         self.assertTrue(data["created"])
 
-    def test_delete_question(self):
         with self.app.app_context():
-            question = Question(question="Temp", answer="Temp", category="1", difficulty=1)
+            created = db.session.get(Question, data["created"])
+            self.assertIsNotNone(created)
+
+    def test_create_question_failure_422_missing_fields(self):
+        res = self.client.post("/questions", json={
+            "question": "",
+            "answer": "",
+            "category": "1",
+            "difficulty": 1
+        })
+        data = res.get_json()
+
+        self.assertEqual(res.status_code, 422)
+        self.assertFalse(data["success"])
+        self.assertEqual(data["message"], "unprocessable")
+
+    def test_create_question_failure_400_no_body(self):
+        res = self.client.post(
+            "/questions",
+            data="not json",
+            content_type="application/json",
+        )
+        data = res.get_json()
+
+        self.assertEqual(res.status_code, 400)
+        self.assertFalse(data["success"])
+        self.assertEqual(data["message"], "bad request")
+
+    def test_delete_question_success(self):
+        with self.app.app_context():
+            question = Question(
+                question="Temp", answer="Temp", category="1", difficulty=1
+            )
             question.insert()
             question_id = question.id
 
@@ -112,7 +168,7 @@ class TriviaTestCase(unittest.TestCase):
             deleted = db.session.get(Question, question_id)
         self.assertIsNone(deleted)
 
-    def test_404_delete_nonexistent_question(self):
+    def test_delete_question_failure_404_nonexistent(self):
         res = self.client.delete("/questions/100000")
         data = res.get_json()
 
@@ -120,15 +176,36 @@ class TriviaTestCase(unittest.TestCase):
         self.assertFalse(data["success"])
         self.assertEqual(data["message"], "resource not found")
 
-    def test_search_questions(self):
-        res = self.client.post("/questions/search", json={"searchTerm": "Sample"})
+    def test_search_questions_success(self):
+        res = self.client.post(
+            "/questions/search", json={"searchTerm": "Sample"}
+        )
         data = res.get_json()
 
         self.assertEqual(res.status_code, 200)
         self.assertTrue(data["success"])
-        self.assertTrue(data["total_questions"] > 0)
+        self.assertEqual(data["total_questions"], 12)
 
-    def test_get_questions_by_category(self):
+    def test_search_questions_success_no_results(self):
+        res = self.client.post(
+            "/questions/search", json={"searchTerm": "zzzznomatch"}
+        )
+        data = res.get_json()
+
+        self.assertEqual(res.status_code, 200)
+        self.assertTrue(data["success"])
+        self.assertEqual(data["total_questions"], 0)
+        self.assertEqual(len(data["questions"]), 0)
+
+    def test_search_questions_failure_400_missing_term(self):
+        res = self.client.post("/questions/search", json={})
+        data = res.get_json()
+
+        self.assertEqual(res.status_code, 400)
+        self.assertFalse(data["success"])
+        self.assertEqual(data["message"], "bad request")
+
+    def test_get_questions_by_category_success(self):
         res = self.client.get("/categories/1/questions")
         data = res.get_json()
 
@@ -137,7 +214,7 @@ class TriviaTestCase(unittest.TestCase):
         self.assertTrue(data["total_questions"] > 0)
         self.assertEqual(data["current_category"], "Science")
 
-    def test_404_get_questions_by_invalid_category(self):
+    def test_get_questions_by_category_failure_404_invalid_category(self):
         res = self.client.get("/categories/100000/questions")
         data = res.get_json()
 
@@ -145,7 +222,7 @@ class TriviaTestCase(unittest.TestCase):
         self.assertFalse(data["success"])
         self.assertEqual(data["message"], "resource not found")
 
-    def test_play_quiz(self):
+    def test_play_quiz_success(self):
         res = self.client.post("/quizzes", json={
             "previous_questions": [],
             "quiz_category": {"type": "Science", "id": 1}
@@ -156,6 +233,25 @@ class TriviaTestCase(unittest.TestCase):
         self.assertTrue(data["success"])
         self.assertTrue(data["question"])
         self.assertEqual(data["question"]["category"], "1")
+
+    def test_play_quiz_success_all_categories(self):
+        res = self.client.post("/quizzes", json={
+            "previous_questions": [],
+            "quiz_category": {"type": "click", "id": 0}
+        })
+        data = res.get_json()
+
+        self.assertEqual(res.status_code, 200)
+        self.assertTrue(data["success"])
+        self.assertTrue(data["question"])
+
+    def test_play_quiz_failure_400_missing_category(self):
+        res = self.client.post("/quizzes", json={"previous_questions": []})
+        data = res.get_json()
+
+        self.assertEqual(res.status_code, 400)
+        self.assertFalse(data["success"])
+        self.assertEqual(data["message"], "bad request")
 
 
 # Make the tests conveniently executable
